@@ -38,15 +38,19 @@ app.get('/api/stats', (req, res) => {
     const resolved = db.prepare(
       `SELECT COUNT(*) as count FROM signals ${whereClause ? whereClause + ' AND' : 'WHERE'} status = 'RESOLVED'`
     ).get()
+    // Live trades only (order_id IS NOT NULL) for PnL metrics
+    const liveResolved = db.prepare(
+      `SELECT COUNT(*) as count FROM signals ${whereClause ? whereClause + ' AND' : 'WHERE'} status = 'RESOLVED' AND order_id IS NOT NULL`
+    ).get()
     const wins = db.prepare(
-      `SELECT COUNT(*) as count FROM signals ${whereClause ? whereClause + ' AND' : 'WHERE'} status = 'RESOLVED' AND realized_pnl > 0`
+      `SELECT COUNT(*) as count FROM signals ${whereClause ? whereClause + ' AND' : 'WHERE'} status = 'RESOLVED' AND order_id IS NOT NULL AND realized_pnl > 0`
     ).get()
     const pnlRow = db.prepare(
-      `SELECT SUM(realized_pnl) as total, AVG(realized_pnl) as avg, MAX(realized_pnl) as best, MIN(realized_pnl) as worst FROM signals ${whereClause ? whereClause + ' AND' : 'WHERE'} status = 'RESOLVED'`
+      `SELECT SUM(realized_pnl) as total, AVG(realized_pnl) as avg, MAX(realized_pnl) as best, MIN(realized_pnl) as worst FROM signals ${whereClause ? whereClause + ' AND' : 'WHERE'} status = 'RESOLVED' AND order_id IS NOT NULL`
     ).get()
 
     const pnlList = db.prepare(
-      `SELECT realized_pnl FROM signals ${whereClause ? whereClause + ' AND' : 'WHERE'} status = 'RESOLVED' ORDER BY generated_at ASC`
+      `SELECT realized_pnl FROM signals ${whereClause ? whereClause + ' AND' : 'WHERE'} status = 'RESOLVED' AND order_id IS NOT NULL ORDER BY generated_at ASC`
     ).all().map(r => r.realized_pnl)
 
     let sharpe = null
@@ -71,7 +75,7 @@ app.get('/api/stats', (req, res) => {
       total_signals: total.count,
       resolved: resolved.count,
       wins: wins.count,
-      win_rate: resolved.count > 0 ? (wins.count / resolved.count) : 0,
+      win_rate: liveResolved.count > 0 ? (wins.count / liveResolved.count) : 0,
       total_pnl: pnlRow.total ?? 0,
       avg_pnl: pnlRow.avg ?? 0,
       best_trade: pnlRow.best ?? 0,
@@ -90,8 +94,8 @@ app.get('/api/pnl-chart', (req, res) => {
     const db = getDb()
     const since = periodToDate(req.query.period)
     const whereClause = since
-      ? `WHERE status = 'RESOLVED' AND generated_at >= '${since}'`
-      : `WHERE status = 'RESOLVED'`
+      ? `WHERE status = 'RESOLVED' AND order_id IS NOT NULL AND generated_at >= '${since}'`
+      : `WHERE status = 'RESOLVED' AND order_id IS NOT NULL`
 
     const rows = db.prepare(
       `SELECT generated_at, realized_pnl, question FROM signals ${whereClause} ORDER BY generated_at ASC`
